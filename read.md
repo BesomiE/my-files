@@ -1,4 +1,4 @@
-✅ Summary of the Camera Problem on Raspberry Pi
+
 ❌ Issue:
 You were getting the error:
 
