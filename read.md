@@ -1,3 +1,8 @@
+git clone https://github.com/BesomiE/my-files.git
+
+cd my-files.git
+chmod +x setup.sh
+./setup.sh
 
 ❌ Issue:
 You were getting the error:
