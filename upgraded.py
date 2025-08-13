@@ -97,34 +97,7 @@ def set_leds(red, green, yellow):
     GPIO.output(GREEN_LED_PIN, green)
     GPIO.output(YELLOW_LED_PIN, yellow)
 
-def smart_avoidance(car_box, frame_width):
-    x1, _, x2, _ = car_box
-    car_center_x = (x1 + x2) / 2
-    frame_center_x = frame_width / 2
-    
-    # Simple avoidance sequence
-    set_leds(red=True, green=False, yellow=False)
-    
-    if car_center_x < frame_center_x:
-        print("Car detected on the left. Avoiding to the right.")
-        move_backward(speed=SLOW_SPEED)
-        time.sleep(0.4)
-        turn_right(speed=TURN_SPEED)
-        time.sleep(1.0)
-        move_forward(speed=SLOW_SPEED)
-        time.sleep(0.5)
-    else:
-        print("Car detected on the right. Avoiding to the left.")
-        move_backward(speed=SLOW_SPEED)
-        time.sleep(0.4)
-        turn_left(speed=TURN_SPEED)
-        time.sleep(1.0)
-        move_forward(speed=SLOW_SPEED)
-        time.sleep(0.5)
-    
-    stop()
-    print("Avoidance maneuver complete. Resuming normal operations.")
-    set_leds(red=False, green=False, yellow=False)
+
 
 def draw_color_box(mask, color_name, draw_color):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
