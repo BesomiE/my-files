@@ -96,6 +96,15 @@ def set_leds(red, green, yellow):
     GPIO.output(RED_LED_PIN, red)
     GPIO.output(GREEN_LED_PIN, green)
     GPIO.output(YELLOW_LED_PIN, yellow)
+
+def draw_color_box(mask, color_name, draw_color):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > 1000:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), draw_color, 2)
+            cv2.putText(frame, color_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, draw_color, 2)
     
 def smart_avoidance(car_box, frame_width):
     x1, _, x2, _ = car_box
