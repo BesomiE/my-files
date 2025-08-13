@@ -51,6 +51,8 @@ STATE_SLOWING = 2
 STATE_AVOIDING = 3
 
 current_state = STATE_STOPPED # Start in a safe, stopped state
+avoidance_start_time = 0
+avoid_direction = 'right'
 
 # ==== Motor & LED Control Functions ====
 def set_speed(speed):
@@ -228,17 +230,35 @@ try:
         # --- State Machine Logic (simplified) ---
         set_leds(red=False, green=False, yellow=False)
 
-        if person_near:
+        if current_state == STATE_AVOIDING:
+            # Continue avoidance maneuver for a set duration
+            if time.time() - avoidance_start_time > AVOIDANCE_TIME:
+                current_state = STATE_FORWARD
+            else:
+                # Execute the turn
+                if avoid_direction == 'right':
+                    turn_right(speed=TURN_SPEED)
+                else:
+                    turn_left(speed=TURN_SPEED)
+
+        elif person_near:
+            # Corrected behavior: Stop, do NOT avoid
             current_state = STATE_STOPPED
             set_leds(red=False, green=False, yellow=True)
             print("Person is very close - stopping")
-            smart_avoidance(last_boxes[0], frame.shape[1])
-            continue
         elif car_near:
-            smart_avoidance(last_boxes[0], frame.shape[1])
-            current_state = STATE_FORWARD
+            # Start avoidance maneuver
+            current_state = STATE_AVOIDING
+            set_leds(red=True, green=False, yellow=False)
+            avoidance_start_time = time.time()
             print("Car detected near - starting avoidance")
-            continue
+            
+            # Determine avoidance direction based on car's position
+            x1 = int(last_boxes[0][1] * frame.shape[1])
+            x2 = int(last_boxes[0][3] * frame.shape[1])
+            car_center_x = (x1 + x2) / 2
+            frame_center_x = frame.shape[1] / 2
+            avoid_direction = 'right' if car_center_x < frame_center_x else 'left'
         elif red_detected:
             current_state = STATE_STOPPED
             set_leds(red=True, green=False, yellow=False)
