@@ -40,8 +40,6 @@ GPIO.setup(YELLOW_LED_PIN, GPIO.OUT)
 FORWARD_SPEED = 100
 SLOW_SPEED = 40
 TURN_SPEED = 60
-OBSTACLE_AVOIDANCE_TIME = 2  # seconds
-
 COLOR_MIN_PIXELS = 3000
 OBJECT_CONFIDENCE_THRESHOLD = 0.7
 OBJECT_NEAR_HEIGHT_THRESHOLD = 100
@@ -97,20 +95,12 @@ def set_leds(red, green, yellow):
     GPIO.output(GREEN_LED_PIN, green)
     GPIO.output(YELLOW_LED_PIN, yellow)
 
-def draw_color_box(mask, color_name, draw_color):
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area > 1000:
-            x, y, w, h = cv2.boundingRect(cnt)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), draw_color, 2)
-            cv2.putText(frame, color_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, draw_color, 2)
-    
 def smart_avoidance(car_box, frame_width):
     x1, _, x2, _ = car_box
     car_center_x = (x1 + x2) / 2
     frame_center_x = frame_width / 2
-
+    
+    # Simple avoidance sequence
     set_leds(red=True, green=False, yellow=False)
     
     if car_center_x < frame_center_x:
@@ -121,7 +111,6 @@ def smart_avoidance(car_box, frame_width):
         time.sleep(1.0)
         move_forward(speed=SLOW_SPEED)
         time.sleep(0.5)
-        
     else:
         print("Car detected on the right. Avoiding to the left.")
         move_backward(speed=SLOW_SPEED)
@@ -134,7 +123,16 @@ def smart_avoidance(car_box, frame_width):
     stop()
     print("Avoidance maneuver complete. Resuming normal operations.")
     set_leds(red=False, green=False, yellow=False)
-    
+
+def draw_color_box(mask, color_name, draw_color):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > 1000:
+            x, y, w, h = cv2.boundingRect(cnt)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), draw_color, 2)
+            cv2.putText(frame, color_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, draw_color, 2)
+
 # ==== Load TFLite Model and Labels ====
 with open("TFLite_model_bbd/labelmap.txt", "r") as f:
     class_names = [line.strip() for line in f.readlines()]
@@ -159,18 +157,10 @@ upper_green = np.array([80, 255, 255])
 lower_yellow = np.array([20, 100, 100])
 upper_yellow = np.array([30, 255, 255])
 
-# ==== Debouncing for colors and objects ====
-color_debounce = {
-    "red": collections.deque(maxlen=5),
-    "green": collections.deque(maxlen=5),
-    "yellow": collections.deque(maxlen=5),
-}
-object_debounce = collections.deque(maxlen=5)
-
-# Variables for drawing on the frame
+# Using variables from the old code for drawing, but with improved state management
+frame_count = 0
 last_boxes, last_class_ids, last_scores, last_count = [], [], [], 0
 
-# ==== Main Loop ====
 print("Waiting for button press...")
 while not GPIO.input(BUTTON_PIN) == GPIO.HIGH:
     time.sleep(0.1)
@@ -184,6 +174,7 @@ try:
 
         # --- Vision Processing ---
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        frame_count += 1
 
         # Color Detection
         mask_red = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
@@ -193,106 +184,88 @@ try:
         red_detected = cv2.countNonZero(mask_red) > COLOR_MIN_PIXELS
         green_detected = cv2.countNonZero(mask_green) > COLOR_MIN_PIXELS
         yellow_detected = cv2.countNonZero(mask_yellow) > COLOR_MIN_PIXELS
-
-        color_debounce["red"].append(red_detected)
-        color_debounce["green"].append(green_detected)
-        color_debounce["yellow"].append(yellow_detected)
-
-        stable_red = sum(color_debounce["red"]) > len(color_debounce["red"]) // 2
-        stable_green = sum(color_debounce["green"]) > len(color_debounce["green"]) // 2
-        stable_yellow = sum(color_debounce["yellow"]) > len(color_debounce["yellow"]) // 2
         
-        # Object Detection (every 5 frames for efficiency)
-        if len(object_debounce) % 5 == 0:
+        # Object Detection is the same as your old code
+        if frame_count % 10 == 0:
             small_frame = cv2.resize(frame, (300, 300))
             input_data = np.expand_dims(small_frame, axis=0)
             if input_details[0]['dtype'] == np.float32:
                 input_data = (np.float32(input_data) - 127.5) / 127.5
-            
-            interpreter.set_tensor(input_details[0]['index'], input_data.astype(input_details[0]['dtype']))
+            else:
+                input_data = input_data.astype(np.uint8)
+
+            interpreter.set_tensor(input_details[0]['index'], input_data)
             interpreter.invoke()
-            
+
             last_boxes = interpreter.get_tensor(output_details[0]['index'])[0]
             last_class_ids = interpreter.get_tensor(output_details[1]['index'])[0]
             last_scores = interpreter.get_tensor(output_details[2]['index'])[0]
             last_count = int(interpreter.get_tensor(output_details[3]['index'])[0])
-            
-            object_debounce.clear()
-            
-            found_person = False
-            found_car = False
-            
-            for i in range(last_count):
-                if last_scores[i] > OBJECT_CONFIDENCE_THRESHOLD:
-                    detected_class_name = class_names[int(last_class_ids[i])]
-                    y1 = int(last_boxes[i][0] * frame.shape[0])
-                    y2 = int(last_boxes[i][2] * frame.shape[0])
-                    
-                    if detected_class_name == "person":
-                        found_person = True
-                        if (y2 - y1) > OBJECT_NEAR_HEIGHT_THRESHOLD:
-                            current_state = STATE_STOPPED
-                            print("Person very close - STOP")
-                            break
-                    elif detected_class_name == "car":
-                        found_car = True
-                        if (y2 - y1) > OBJECT_NEAR_HEIGHT_THRESHOLD:
-                            smart_avoidance(last_boxes[i], frame.shape[1])
-                            current_state = STATE_FORWARD
-                            break
-            
-            if found_person:
-                object_debounce.append("person")
-            elif found_car:
-                object_debounce.append("car")
-            else:
-                object_debounce.append("none")
         
-        # --- State Machine Logic ---
+        # Check for detections and set state variables
+        person_detected = False
+        car_detected = False
+        person_near = False
+        car_near = False
+
+        for i in range(last_count):
+            if last_scores[i] > OBJECT_CONFIDENCE_THRESHOLD:
+                detected_class_name = class_names[int(last_class_ids[i])]
+                
+                # Use bounding box for near-detection logic
+                y1 = int(last_boxes[i][0] * frame.shape[0])
+                y2 = int(last_boxes[i][2] * frame.shape[0])
+                
+                if detected_class_name == "person":
+                    person_detected = True
+                    if (y2 - y1) > OBJECT_NEAR_HEIGHT_THRESHOLD:
+                        person_near = True
+                elif detected_class_name == "car":
+                    car_detected = True
+                    if (y2 - y1) > OBJECT_NEAR_HEIGHT_THRESHOLD:
+                        car_near = True
         
+        # --- State Machine Logic (simplified) ---
         set_leds(red=False, green=False, yellow=False)
 
-        if "person" in object_debounce:
+        if person_near:
             current_state = STATE_STOPPED
-            print("Person detected - SLOWING DOWN")
-            set_leds(red=False, green=False, yellow=True) # Yellow for slowing down
-
-        elif stable_red:
-            current_state = STATE_STOPPED
-            print("Red light detected - STOP")
-            set_leds(red=True, green=False, yellow=False)
-
-        elif "car" in object_debounce:
-            current_state = STATE_SLOWING
-            print("Car detected - SLOWING DOWN")
             set_leds(red=False, green=False, yellow=True)
-
-        elif stable_yellow:
-            current_state = STATE_SLOWING
-            print("Yellow light detected - SLOW")
-            set_leds(red=False, green=False, yellow=True)
-
-        elif stable_green:
+            print("Person is very close - stopping")
+            smart_avoidance(last_boxes[0], frame.shape[1])
+            continue
+        elif car_near:
+            smart_avoidance(last_boxes[0], frame.shape[1])
             current_state = STATE_FORWARD
-            print("Green light detected - GO")
+            print("Car detected near - starting avoidance")
+            continue
+        elif red_detected:
+            current_state = STATE_STOPPED
+            set_leds(red=True, green=False, yellow=False)
+            print("Red light detected - STOP")
+        elif yellow_detected:
+            current_state = STATE_SLOWING
+            set_leds(red=False, green=False, yellow=True)
+            print("Yellow light detected - SLOW")
+        elif green_detected:
+            current_state = STATE_FORWARD
             set_leds(red=False, green=True, yellow=False)
-
+            print("Green light detected - GO")
         else:
             current_state = STATE_FORWARD
-            
+            print("No significant detections - moving forward")
+        
         # Execute actions based on current state
         if current_state == STATE_FORWARD:
             move_forward(speed=FORWARD_SPEED)
             cv2.putText(frame, "STATE: FORWARD", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
         elif current_state == STATE_STOPPED:
             stop()
             cv2.putText(frame, "STATE: STOPPED", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
         elif current_state == STATE_SLOWING:
             move_forward(speed=SLOW_SPEED)
             cv2.putText(frame, "STATE: SLOWING", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
+        
         # --- Drawing and Displaying ---
         draw_color_box(mask_red, "Red", (0, 0, 255))
         draw_color_box(mask_green, "Green", (0, 255, 0))
