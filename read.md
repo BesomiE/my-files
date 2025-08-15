@@ -59,3 +59,25 @@ sudo reboot
 After reboot, test the camera:
 
 libcamera-hello
+----------------------------------------
+chmod +x setup_trafficbot.sh
+./setup_trafficbot.sh
+
+# Camera detection
+rpicam-hello --list-cameras
+
+# Headless still image capture
+rpicam-still -o test.jpg && ls -lh test.jpg
+
+# Picamera2 test from Python
+python3 - <<'PY'
+from picamera2 import Picamera2
+picam2 = Picamera2()
+picam2.configure(picam2.create_preview_configuration(main={"format":"RGB888","size":(320,240)}))
+picam2.start()
+import time; time.sleep(1)
+frame = picam2.capture_array()
+print("Captured frame:", frame.shape)
+picam2.close()
+PY
+
