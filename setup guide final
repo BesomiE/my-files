@@ -89,6 +89,8 @@ python3 -c "import RPi.GPIO as GPIO; print('RPi.GPIO installed successfully')"
 ```bash
 # Install TensorFlow Lite Runtime
 pip3 install tflite-runtime --break-system-packages
+or 
+pip3 install tflite-runtime
 
 # Verify installation
 python3 -c "import tflite_runtime; print('TFLite Runtime installed successfully')"
